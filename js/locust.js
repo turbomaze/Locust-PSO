@@ -10,9 +10,10 @@
 var Locust = (function() {
     /**********
      * config */
-    var _w = 0.2;
-    var _p = 0.1;
-    var _g = 0.1;
+    var _w = 0.6;
+    var _p = 0.01;
+    var _g = 0.005;
+    var draw = true; //whether or not to draw the particles (2d)
     
     /***********
      * objects */ 
@@ -25,6 +26,32 @@ var Locust = (function() {
 
     /********************
      * helper functions */
+    //stolen from http://stackoverflow.com/questions/4288759/asynchronous-for-cycle-in-javascript
+    function asyncLoop(iterations, func, callback) {
+        var index = 0;
+        var done = false;
+        var loop = {
+            next: function() {
+                if (done) return;
+                if (index < iterations) {
+                    index += 1;
+                    func(loop);
+                } else {
+                    done = true;
+                    if (callback) callback();
+                }
+            },
+            iteration: function() {
+                return index - 1;
+            },
+            break: function() {
+                done = true;
+                if (callback) callback();
+            }
+        };
+        loop.next();
+        return loop;
+    }
     function getRandInt(low, high) { //output is in [low, high)
         return Math.floor(this.getRandFloat(low, high));
     }
@@ -49,7 +76,7 @@ var Locust = (function() {
           * the best set of parameters discovered using the conditions
           * outlined in config
         **/
-        optimize: function(config, wrapper) {
+        optimize: function(config, wrapper, next) {
             function getRandPos() {
                 var pos = [];
                 for (var ai = 0; ai < n; ai++) pos.push(Math.random());
@@ -73,8 +100,33 @@ var Locust = (function() {
                 }
                 return xs;
             }
+            function drawParticles() {
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillRect(0, 0, canv.width, canv.height);
+                
+                //draw the swarm's best
+                var cgbestpos = posToParams(bestPos);
+                ctx.fillStyle = '#00FF00';
+                ctx.fillRect(cgbestpos[0]-4, cgbestpos[1]-4, 10, 10);
 
+                for (var ai = 0; ai < config.swarmSize; ai++) {
+                    var cpbestpos = posToParams(particles[ai].bestPos);
+                    ctx.fillStyle = '#0000FF';
+                    ctx.fillRect(cpbestpos[0]-1.5, cpbestpos[1]-1.5, 3, 3);
+                
+                    var cpos = posToParams(particles[ai].pos);
+                    ctx.fillStyle = '#FF0000';
+                    ctx.fillRect(cpos[0]-1, cpos[1]-1, 2, 2);
+                }
+            }
+            
             var n = config.params.length; //number of dimensions
+            var canv = document.getElementById('c');
+            if (draw) {
+                canv.width = 512;
+                canv.height = 512;
+            } else canv.parentNode.removeChild(canv);
+            var ctx = canv.getContext('2d');
             
             //init the particles
             var particles = [];
@@ -85,7 +137,7 @@ var Locust = (function() {
                 var score = wrapper.eval(posToParams(pos));
                 var vel = [];
                 for (var bi = 0; bi < n; bi++) {
-                    vel.push(0.1*Math.random());
+                    vel.push(0.4*Math.random()-0.2);
                 }
                 particles.push(new Particle(pos, score, vel));
                 
@@ -94,9 +146,12 @@ var Locust = (function() {
                     bestPos = pos;
                 }
             }
+
+            //draw the initial particles
+            if (draw) drawParticles();
             
             //iterate the algorithm
-            for (var ai = 1; ai < config.numSteps; ai++) {
+            var asyncLoopPSOSteps = function(callback) {
                 for (var bi = 0; bi < config.swarmSize; bi++) {
                     var p = particles[bi];
                     
@@ -130,25 +185,40 @@ var Locust = (function() {
                         bestPos = p.pos;
                     }
                 }
-            }
-            
-            return posToParams(bestPos);
+                
+                if (draw) drawParticles();
+                
+                //call the next iteration
+                setTimeout(function() { callback(true); }, 6); 
+            };
+            asyncLoop(config.numSteps-1,
+                function(loop) {
+                    asyncLoopPSOSteps(function(keepGoing) {
+                        if (keepGoing) loop.next();
+                        else loop.break();
+                    });
+                }, 
+                function() {
+                    next(posToParams(bestPos));
+                }
+            );
         }
     };
 })();
 
+var field;
 window.addEventListener('load', function() {
-    var paramsToOptimize = [[16, 48], [-70, 219]];
-    var field = Faucet.drip(paramsToOptimize, 1);
-    var argMax = Locust.optimize({
-        numSteps: 50,
+    var paramsToOptimize = [[0, 512], [0, 512]];
+    field = Faucet.drip(paramsToOptimize, 1);
+    Locust.optimize({
+        numSteps: 70,
         swarmSize: 16,
         params: paramsToOptimize,
-    }, field);
-    var max = field.eval(argMax);
-    
-    console.log('Maximum possible: '+1);
-    console.log(max+' achieved with params: '+JSON.stringify(argMax));
+    }, field, function(argMax) {
+        var max = field.eval(argMax);
+        console.log('Maximum possible: '+1);
+        console.log(max+' achieved with params: '+JSON.stringify(argMax));
+    });
 });
 
 
