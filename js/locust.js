@@ -15,8 +15,7 @@ var Locust = (function() {
     var _g = 0.03;
     var _r = 0.015; //random component
     var _iv = 0.5; //initial velocity constant
-    var draw = true; //whether or not to draw the particles (2d)
-    
+
     /***********
      * objects */ 
     function Particle(pos, score, vel) {
@@ -54,44 +53,35 @@ var Locust = (function() {
         loop.next();
         return loop;
     }
-    function getRandInt(low, high) { //output is in [low, high)
-        return Math.floor(this.getRandFloat(low, high));
-    }
-    function getRandFloat(low, high) { //output is in [low, high)
-        return low + Math.random()*(high-low);
-    }
 
     return { //return public functions
         /** @params
-          * config   --- JSON that changes the behavior of Locust
-          *              {
-          *                  numSteps: number of steps to run the PSO
-          *                  swarmSize: number of particles in the swarm
-          *                  params: array of [min, max] pairs, one per
-          *                          parameter
-          *              }
-          * wrapper  --- object with an 'eval' function that outputs a score
-          *              for a given combination of parameters; the field
-          *              over which to optimize
+          * config  --- JSON that changes the behavior of Locust
+          *             {
+          *                 numSteps: number of steps to run the PSO
+          *                 swarmSize: number of particles in the swarm
+          *                 params: array of [min, max] pairs, one per
+          *                         parameter
+          *                 randomVel: whether or not to include a random
+          *                            component in the velocities
+          *             }
+          * wrapper --- object with an 'eval' function that outputs a score
+          *             for a given combination of parameters; the field
+          *             over which to optimize
+          * done    --- function to call when the optimization is finished;
+          *             receives the best parameters found
+          * each    --- optional function that is run each iteration;
+          *             receives all the particles and the current bestPos
           *
           * @return
           * the best set of parameters discovered using the conditions
           * outlined in config
         **/
-        optimize: function(config, wrapper, next) {
+        optimize: function(config, wrapper, done, each) {
             function getRandPos() {
                 var pos = [];
                 for (var ai = 0; ai < n; ai++) pos.push(Math.random());
                 return pos;
-            }
-            function getRandParams() {
-                var xs = [];
-                for (var ai = 0; ai < config.params.length; ai++) {
-                    xs.push(getRandFloat(
-                        config.params[ai][0], config.params[ai][1] 
-                    ));
-                } 
-                return xs;
             }
             function posToParams(pos) {
                 var xs = [];
@@ -102,32 +92,15 @@ var Locust = (function() {
                 }
                 return xs;
             }
-            function drawParticles() {
-                //clear the canvas
-                ctx.fillStyle = '#FFFFFF';
-                ctx.fillRect(0, 0, canv.width, canv.height);
-                
-                //draw the swarm's best
-                var cgbestpos = posToParams(bestPos);
-                ctx.fillStyle = '#00FF00';
-                ctx.fillRect(cgbestpos[0]-4, cgbestpos[1]-4, 8, 8);
 
-                //draw the particles
-                for (var ai = 0; ai < config.swarmSize; ai++) {
-                    var cpos = posToParams(particles[ai].pos);
-                    ctx.fillStyle = '#FF0000';
-                    ctx.fillRect(cpos[0]-1.5, cpos[1]-1.5, 3, 3);
-                }
+            //optional config items
+            if (!config.hasOwnProperty('randomVel')) {
+                config.randomVel = false;
             }
             
+            //prepare the working variables
             var n = config.params.length; //number of dimensions
-            var canv = document.getElementById('c');
-            if (draw) {
-                canv.width = config.params[0][1];
-                canv.height = config.params[1][1];
-            } else canv.parentNode.removeChild(canv); //get rid of it
-            var ctx = canv.getContext('2d');
-                  
+  
             //init the particles
             var particles = [];
             var best = -Infinity;
@@ -147,8 +120,7 @@ var Locust = (function() {
                 }
             }
 
-            //draw the initial particles
-            if (draw) drawParticles();
+            if (each) each(particles, bestPos);
             
             //iterate the algorithm
             var asyncLoopPSOSteps = function(callback) {
@@ -164,7 +136,9 @@ var Locust = (function() {
                         //diff from global best
                         var gdiff = bestPos[ti]-p.pos[ti];
                         p.vel[ti] = _w*p.vel[ti]+_p*rp*pdiff+_g*rg*gdiff;
-                        p.vel[ti] += 2*_r*Math.random()-_r;
+                        if (config.randomVel) {
+                            p.vel[ti] += 2*_r*Math.random()-_r;
+                        }
                     }
                     
                     //update the position
@@ -186,9 +160,8 @@ var Locust = (function() {
                         bestPos = p.pos.slice();
                     }
                 }
-                
-                //update the drawing
-                if (draw) drawParticles();
+
+                if (each) each(particles, bestPos);
                 
                 //call the next iteration
                 setTimeout(function() { callback(true); }, 6); 
@@ -201,7 +174,7 @@ var Locust = (function() {
                     });
                 }, 
                 function() {
-                    next(posToParams(bestPos));
+                    done(posToParams(bestPos));
                 }
             );
         }
@@ -209,16 +182,52 @@ var Locust = (function() {
 })();
 
 window.addEventListener('load', function() {
-    var paramsToOptimize = [[0, 1024], [0, 1024]];
+    //what to optimize over
+    var paramsToOptimize = [[0, 512], [0, 512]];
     var field = Faucet.drip(paramsToOptimize, 1);
+    
+    //prepare the canvas variables
+    var canv = document.getElementById('c');
+    canv.width = paramsToOptimize[0][1];
+    canv.height = paramsToOptimize[1][1];
+    var ctx = canv.getContext('2d');
+    
+    //perform the optimization
     Locust.optimize({
         numSteps: 70,
         swarmSize: 16,
         params: paramsToOptimize,
-    }, field, function(argMax) {
+        randomVel: true
+    }, field, function getOptimization(argMax) {
         var max = field.eval(argMax);
         console.log('Maximum possible: '+1);
         console.log(max+' achieved with params: '+JSON.stringify(argMax));
+    }, function drawParticles(particles, bestPos) {
+        function posToParams(pos) {
+            var xs = [];
+            for (var ai = 0; ai < paramsToOptimize.length; ai++) {
+                var range = paramsToOptimize[ai][1] - paramsToOptimize[ai][0];
+                var param = pos[ai]*range+paramsToOptimize[ai][0];
+                xs.push(param);
+            }
+            return xs;
+        }
+    
+        //clear the canvas
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, canv.width, canv.height);
+        
+        //draw the swarm's best
+        var cgbestpos = posToParams(bestPos);
+        ctx.fillStyle = '#00FF00';
+        ctx.fillRect(cgbestpos[0]-4, cgbestpos[1]-4, 8, 8);
+
+        //draw the particles
+        for (var ai = 0; ai < particles.length; ai++) {
+            var cpos = posToParams(particles[ai].pos);
+            ctx.fillStyle = '#FF0000';
+            ctx.fillRect(cpos[0]-1.5, cpos[1]-1.5, 3, 3);
+        }
     });
 });
 
