@@ -2,7 +2,7 @@
 | Locust - Particle |
 |  Swarm Optimizer  |
 | @author Anthony   |
-| @version 1.0      |
+| @version 1.0.1    |
 | @date 2014/07/14  |
 | @edit 2014/07/15  |
 \*******************/
