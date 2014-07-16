@@ -1,0 +1,6 @@
+# Locust #
+This is a standard particle swarm optimization algorithm written in Javascript for a separate project I'm working on. All you need to do is give it a list of parameter descriptions, each of the form [minimum value, maximum value], and a way to score sets of parameters. It expects to receive an object with an 'eval' function, which returns scores when given an array of parameters.
+
+Locust runs asynchronously and makes it very easy to build functionality on top of it. It gives you the option to supply a function that's called each iteration of the algorithm, which allows you to do things like visualize the swarm's movements (look up the PSO algorithm if this isn't clear). The file index.html uses a canvas element to render a 2-dimensional view of the particles. 
+
+Check out the comments in locust.js for a detailed explanation on how to use this script. Look at index.html for an explicit example. Note: faucet.js,  https://github.com/turbomaze/Faucet, is a separate project I made to give the PSO something to optimize over.
