@@ -71,9 +71,9 @@ var Locust = (function() {
           *             for a given combination of parameters; the field
           *             over which to optimize
           * done    --- function to call when the optimization is finished;
-          *             receives the best parameters found
-          * each    --- optional function that is run each iteration;
-          *             receives all the particles and the current bestPos
+          *             receives the best parameters found and their score
+          * each    --- optional function that is run each iteration; receives
+          *             all the particles, the current bestPos, and its score
           *
           * @callback
           * supplies the best set of parameters discovered using the
