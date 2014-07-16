@@ -10,14 +10,14 @@
 var Locust = (function() {
     /**********
      * config */
-    var _w = 0.729;
+    var _w = 0.4729;
     var _p = 0.05;
     var _g = 0.03;
     var _r = 0.015; //random component
     var _iv = 0.5; //initial velocity constant
 
     /***********
-     * objects */ 
+     * objects */
     function Particle(pos, score, vel) {
         this.pos = pos.slice();
         this.best = score;
@@ -58,12 +58,14 @@ var Locust = (function() {
         /** @params
           * config  --- JSON that changes the behavior of Locust
           *             {
-          *                 numSteps: number of steps to run the PSO
-          *                 swarmSize: number of particles in the swarm
           *                 params: array of [min, max] pairs, one per
           *                         parameter
-          *                 randomVel: whether or not to include a random
-          *                            component in the velocities
+          *                 [numSteps: number of steps to run the PSO]
+          *                 [swarmSize: number of particles in the swarm]
+          *                 [randomVel: whether or not to include a random
+          *                             component in the velocities]
+          *                 [minimize: if true, the objective field will be
+          *                            minimized not maximized]
           *             }
           * wrapper --- object with an 'eval' function that outputs a score
           *             for a given combination of parameters; the field
@@ -73,9 +75,9 @@ var Locust = (function() {
           * each    --- optional function that is run each iteration;
           *             receives all the particles and the current bestPos
           *
-          * @return
-          * the best set of parameters discovered using the conditions
-          * outlined in config
+          * @callback
+          * supplies the best set of parameters discovered using the
+          * conditions outlined in config
         **/
         optimize: function(config, wrapper, done, each) {
             function getRandPos() {
@@ -94,16 +96,17 @@ var Locust = (function() {
             }
 
             //optional config items
-            if (!config.hasOwnProperty('randomVel')) {
-                config.randomVel = false;
-            }
-            
+            if (!config.hasOwnProperty('numSteps')) config.numSteps = 100;
+            if (!config.hasOwnProperty('swarmSize')) config.swarmSize = 16;
+            if (!config.hasOwnProperty('randomVel')) config.randomVel = false;
+            if (!config.hasOwnProperty('minimize')) config.minimize = false;
+
             //prepare the working variables
             var n = config.params.length; //number of dimensions
-  
+
             //init the particles
             var particles = [];
-            var best = -Infinity;
+            var best = config.minimize ? Infinity : -Infinity;
             var bestPos = [];
             for (var ai = 0; ai < config.swarmSize; ai++) {
                 var pos = getRandPos();
@@ -113,20 +116,27 @@ var Locust = (function() {
                     vel.push(2*_iv*Math.random()-_iv);
                 }
                 particles.push(new Particle(pos, score, vel));
-                
-                if (score > best) {
-                    best = score;
-                    bestPos = pos.slice();
+
+                if (config.minimize) {
+                    if (score < best) {
+                        best = score;
+                        bestPos = pos.slice();
+                    }
+                } else {
+                    if (score > best) {
+                        best = score;
+                        bestPos = pos.slice();
+                    }
                 }
             }
 
-            if (each) each(particles, bestPos);
-            
+            if (each) each(particles, bestPos, best);
+
             //iterate the algorithm
             var asyncLoopPSOSteps = function(callback) {
                 for (var bi = 0; bi < config.swarmSize; bi++) {
                     var p = particles[bi];
-                    
+
                     //update the velocity
                     var rp = Math.random();
                     var rg = Math.random();
@@ -140,7 +150,7 @@ var Locust = (function() {
                             p.vel[ti] += 2*_r*Math.random()-_r;
                         }
                     }
-                    
+
                     //update the position
                     for (var ti = 0; ti < n; ti++) {
                         p.pos[ti] = p.pos[ti]+p.vel[ti];
@@ -148,23 +158,34 @@ var Locust = (function() {
                             0, Math.min(p.pos[ti], 1)
                         ); //keep it in bounds
                     }
-                    
+
                     //update the best score
                     var newScore = wrapper.eval(posToParams(p.pos));
-                    if (newScore > p.best) {
-                        p.best = newScore;
-                        p.bestPos = p.pos.slice();
-                    }
-                    if (newScore > best) {
-                        best = newScore;
-                        bestPos = p.pos.slice();
+                    if (config.minimize) {
+                        if (newScore < p.best) {
+                            p.best = newScore;
+                            p.bestPos = p.pos.slice();
+                        }
+                        if (newScore < best) {
+                            best = newScore;
+                            bestPos = p.pos.slice();
+                        }
+                    } else {
+                        if (newScore > p.best) {
+                            p.best = newScore;
+                            p.bestPos = p.pos.slice();
+                        }
+                        if (newScore > best) {
+                            best = newScore;
+                            bestPos = p.pos.slice();
+                        }
                     }
                 }
 
-                if (each) each(particles, bestPos);
-                
+                if (each) each(particles, bestPos, best);
+
                 //call the next iteration
-                setTimeout(function() { callback(true); }, 6); 
+                setTimeout(function() { callback(true); }, 6);
             };
             asyncLoop(config.numSteps-1,
                 function(loop) {
@@ -172,9 +193,9 @@ var Locust = (function() {
                         if (keepGoing) loop.next();
                         else loop.break();
                     });
-                }, 
+                },
                 function() {
-                    done(posToParams(bestPos));
+                    done(posToParams(bestPos), best);
                 }
             );
         }
@@ -184,25 +205,26 @@ var Locust = (function() {
 window.addEventListener('load', function() {
     //what to optimize over
     var paramsToOptimize = [[0, 512], [0, 512]];
-    var field = Faucet.drip(paramsToOptimize, 1);
-    
+    var bestPossibleScore = 100;
+    var field = Faucet.drip(paramsToOptimize, bestPossibleScore);
+
     //prepare the canvas variables
     var canv = document.getElementById('c');
     canv.width = paramsToOptimize[0][1];
     canv.height = paramsToOptimize[1][1];
     var ctx = canv.getContext('2d');
-    
+
     //perform the optimization
     Locust.optimize({
-        numSteps: 70,
-        swarmSize: 16,
+        numSteps: 50,
+        swarmSize: 12,
         params: paramsToOptimize,
-        randomVel: true
-    }, field, function getOptimization(argMax) {
-        var max = field.eval(argMax);
-        console.log('Maximum possible: '+1);
+        randomVel: true,
+        minimize: false
+    }, field, function getOptimization(argMax, max) { //'done' function
+        console.log('Best possible: '+bestPossibleScore);
         console.log(max+' achieved with params: '+JSON.stringify(argMax));
-    }, function drawParticles(particles, bestPos) {
+    }, function drawParticles(particles, bestPos, best) { //'each' function
         function posToParams(pos) {
             var xs = [];
             for (var ai = 0; ai < paramsToOptimize.length; ai++) {
@@ -212,11 +234,11 @@ window.addEventListener('load', function() {
             }
             return xs;
         }
-    
+
         //clear the canvas
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, canv.width, canv.height);
-        
+
         //draw the swarm's best
         var cgbestpos = posToParams(bestPos);
         ctx.fillStyle = '#00FF00';
@@ -230,12 +252,3 @@ window.addEventListener('load', function() {
         }
     });
 });
-
-
-
-
-
-
-
-
-
